@@ -160,13 +160,17 @@ func (s *SystemInfo) Summary() string {
 		label("Platform"),
 		colorValue.Sprintf("%s  %s", osName, s.Arch)+colorValue.Sprintf("  (%s)", s.Hostname)))
 
-	if s.ContainerRuntime != ContainerRuntimeNone {
-		sb.WriteString(fmt.Sprintf("  %s %s\n",
-			label("Container"),
-			colorValue.Sprint(string(s.ContainerRuntime))))
+	if s.OtelCollector {
+		var line string
+		if s.OtelConfigPath != "" {
+			line = colorValue.Sprint(s.OtelConfigPath) + colorValue.Sprint("  (running)")
+		} else {
+			line = colorValue.Sprint("running")
+		}
+		sb.WriteString(fmt.Sprintf("  %s %s\n", label("OpenTelemetry"), line))
 	} else {
 		sb.WriteString(fmt.Sprintf("  %s %s\n",
-			label("Container"),
+			label("OpenTelemetry"),
 			colorMuted.Sprint("none")))
 	}
 
@@ -175,6 +179,10 @@ func (s *SystemInfo) Summary() string {
 			label("Docker"),
 			colorValue.Sprint(s.Docker.ServerVersion),
 			colorValue.Sprintf("%d", s.Docker.RunningContainerCount)))
+	} else {
+		sb.WriteString(fmt.Sprintf("  %s %s\n",
+			label("Docker"),
+			colorMuted.Sprint("none")))
 	}
 
 	if s.Kubernetes != nil && s.Kubernetes.Available {
@@ -186,34 +194,6 @@ func (s *SystemInfo) Summary() string {
 	} else {
 		sb.WriteString(fmt.Sprintf("  %s %s\n",
 			label("Kubernetes"),
-			colorMuted.Sprint("none")))
-	}
-
-	if s.OneAgentRunning {
-		sb.WriteString(fmt.Sprintf("  %s %s\n",
-			label("OneAgent"),
-			colorValue.Sprint("running")))
-	} else if s.Platform == PlatformDarwin {
-		sb.WriteString(fmt.Sprintf("  %s %s\n",
-			label("OneAgent"),
-			colorMuted.Sprint("none")+colorMuted.Sprint(" (macOS not supported)")))
-	} else {
-		sb.WriteString(fmt.Sprintf("  %s %s\n",
-			label("OneAgent"),
-			colorMuted.Sprint("none")))
-	}
-
-	if s.OtelCollector {
-		var line string
-		if s.OtelConfigPath != "" {
-			line = colorValue.Sprint(s.OtelConfigPath) + colorValue.Sprint("  (running)")
-		} else {
-			line = colorValue.Sprint("running")
-		}
-		sb.WriteString(fmt.Sprintf("  %s %s\n", label("OTel Collector"), line))
-	} else {
-		sb.WriteString(fmt.Sprintf("  %s %s\n",
-			label("OTel Collector"),
 			colorMuted.Sprint("none")))
 	}
 
@@ -253,6 +233,24 @@ func (s *SystemInfo) Summary() string {
 	} else {
 		sb.WriteString(fmt.Sprintf("  %s %s\n",
 			label("Azure"),
+			colorMuted.Sprint("none")))
+	}
+
+	sb.WriteString(fmt.Sprintf("  %s %s\n",
+		label("GCP"),
+		colorMuted.Sprint("none")))
+
+	if s.OneAgentRunning {
+		sb.WriteString(fmt.Sprintf("  %s %s\n",
+			label("OneAgent"),
+			colorValue.Sprint("running")))
+	} else if s.Platform == PlatformDarwin {
+		sb.WriteString(fmt.Sprintf("  %s %s\n",
+			label("OneAgent"),
+			colorMuted.Sprint("none")+colorMuted.Sprint(" (macOS not supported)")))
+	} else {
+		sb.WriteString(fmt.Sprintf("  %s %s\n",
+			label("OneAgent"),
 			colorMuted.Sprint("none")))
 	}
 
