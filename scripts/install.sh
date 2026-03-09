@@ -1,15 +1,11 @@
 #!/usr/bin/env sh
-# install.sh — Download and run dtingest for the current platform.
+# install.sh — Download and install dtingest for the current platform.
 #
 # Usage:
-#   ./install.sh --environment <env-url> \
-#                --access-token <token> \
-#                --platform-token <token> \
-#                [dtingest args...]
+#   ./install.sh [--install-dir <dir>]
 #
-# All three credential flags are optional; omit any that are not required for
-# your chosen installation method.  Any extra arguments after the three known
-# flags are forwarded verbatim to dtingest (default: "setup").
+# By default the binary is installed to /usr/local/bin (requires sudo) or
+# ~/bin if /usr/local/bin is not writable.  Pass --install-dir to override.
 #
 # The script requires either:
 #   • the GitHub CLI (gh) — recommended for private repos, or
@@ -20,26 +16,17 @@ set -e
 REPO="dietermayrhofer/dtingest"
 
 # ── Parse known flags ──────────────────────────────────────────────────────────
-DT_ENVIRONMENT=""
-DT_ACCESS_TOKEN=""
-DT_PLATFORM_TOKEN=""
-EXTRA_ARGS=""
+INSTALL_DIR=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --environment|-e)
-            DT_ENVIRONMENT="$2"; shift 2 ;;
-        --access-token|-a)
-            DT_ACCESS_TOKEN="$2"; shift 2 ;;
-        --platform-token|-p)
-            DT_PLATFORM_TOKEN="$2"; shift 2 ;;
+        --install-dir)
+            INSTALL_DIR="$2"; shift 2 ;;
         *)
-            EXTRA_ARGS="$EXTRA_ARGS $1"; shift ;;
+            echo "Unknown argument: $1" >&2
+            exit 1 ;;
     esac
 done
-
-# Trim leading space
-EXTRA_ARGS="${EXTRA_ARGS# }"
 
 # ── Detect OS ─────────────────────────────────────────────────────────────────
 OS_RAW="$(uname -s)"
@@ -88,40 +75,58 @@ echo "Downloading dtingest ${VERSION}..."
 
 # ── Download and extract ───────────────────────────────────────────────────────
 ARCHIVE="dtingest_${VERSION#v}_${OS}_${ARCH}.tar.gz"
-TMPDIR="$(mktemp -d)"
-trap 'rm -rf "$TMPDIR"' EXIT INT TERM
+WORK_DIR="$(mktemp -d)"
+trap 'rm -rf "$WORK_DIR"' EXIT INT TERM
 
 if command -v gh >/dev/null 2>&1; then
     gh release download "$VERSION" \
         --repo "$REPO" \
         --pattern "$ARCHIVE" \
-        --dir "$TMPDIR"
+        --dir "$WORK_DIR"
 else
     curl -fsSL \
         -H "Authorization: Bearer $GITHUB_TOKEN" \
         "https://github.com/${REPO}/releases/download/${VERSION}/${ARCHIVE}" \
-        -o "${TMPDIR}/${ARCHIVE}"
+        -o "${WORK_DIR}/${ARCHIVE}"
 fi
 
-tar -xzf "${TMPDIR}/${ARCHIVE}" -C "$TMPDIR"
-BINARY="${TMPDIR}/dtingest"
+tar -xzf "${WORK_DIR}/${ARCHIVE}" -C "$WORK_DIR"
 
-if [ ! -f "$BINARY" ]; then
+if [ ! -f "${WORK_DIR}/dtingest" ]; then
     echo "Error: dtingest binary not found after extraction." >&2
     exit 1
 fi
 
-chmod +x "$BINARY"
+chmod +x "${WORK_DIR}/dtingest"
 
-# ── Set credentials as environment variables ──────────────────────────────────
-[ -n "$DT_ENVIRONMENT" ]    && export DT_ENVIRONMENT
-[ -n "$DT_ACCESS_TOKEN" ]   && export DT_ACCESS_TOKEN
-[ -n "$DT_PLATFORM_TOKEN" ] && export DT_PLATFORM_TOKEN
-
-# ── Run dtingest ───────────────────────────────────────────────────────────────
-if [ -z "$EXTRA_ARGS" ]; then
-    exec "$BINARY" setup
-else
-    # shellcheck disable=SC2086
-    exec "$BINARY" $EXTRA_ARGS
+# ── Determine install directory ────────────────────────────────────────────────
+if [ -z "$INSTALL_DIR" ]; then
+    if [ -w "/usr/local/bin" ]; then
+        INSTALL_DIR="/usr/local/bin"
+    else
+        INSTALL_DIR="$HOME/bin"
+        mkdir -p "$INSTALL_DIR"
+    fi
 fi
+
+# ── Install binary ─────────────────────────────────────────────────────────────
+DEST="${INSTALL_DIR}/dtingest"
+if [ -w "$INSTALL_DIR" ]; then
+    mv "${WORK_DIR}/dtingest" "$DEST"
+else
+    echo "Installing to ${INSTALL_DIR} requires elevated privileges..."
+    sudo mv "${WORK_DIR}/dtingest" "$DEST"
+fi
+
+echo ""
+echo "dtingest ${VERSION} installed to ${DEST}"
+
+# Warn if install dir is not in PATH
+case ":${PATH}:" in
+    *":${INSTALL_DIR}:"*) ;;
+    *)
+        echo ""
+        echo "  NOTE: ${INSTALL_DIR} is not in your PATH."
+        echo "  Add it with: export PATH=\"${INSTALL_DIR}:\$PATH\""
+        ;;
+esac
