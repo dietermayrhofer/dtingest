@@ -440,9 +440,16 @@ func verifyOtelInstall(envURL string, crashed <-chan error) error {
 
 	fmt.Println(" ✓")
 	fmt.Println()
-	fmt.Println("  View the logline:")
-	fmt.Println(" ", buildOtelLogsUIURL(envURL, uniqueID))
+	logsURL := buildOtelLogsUIURL(envURL, uniqueID)
+	fmt.Println("  🎉 View the logline:", termLink("Open in Dynatrace Logs", logsURL))
 	return nil
+}
+
+// termLink returns an OSC 8 terminal hyperlink so modern terminals render
+// label as a clickable link instead of printing the raw URL.
+func termLink(label, url string) string {
+	// Format: ESC]8;;URL ESC\ label ESC]8;; ESC\
+	return fmt.Sprintf("\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", url, label)
 }
 
 // generateOtelConfig renders otel.tmpl and returns a collector configuration YAML string.
@@ -509,15 +516,32 @@ func findRunningOtelCollectors() []int {
 func startOtelCollector(binaryPath, configPath string) (<-chan error, error) {
 	cmd := exec.Command(binaryPath, "--config", configPath)
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+
+	// Pipe stderr through a filter — the collector writes structured logs to
+	// stderr in tab-separated format: "<timestamp>\t<level>\t<component>\t<msg>".
+	// Suppress info-level lines; forward warn/error/fatal and anything unrecognised.
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, fmt.Errorf("creating stderr pipe: %w", err)
+	}
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("starting OTel Collector: %w", err)
 	}
 
+	// Drain stderr in the background, only printing non-info lines.
+	go func() {
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.Contains(line, "\tinfo\t") {
+				fmt.Fprintln(os.Stderr, line)
+			}
+		}
+	}()
+
 	pid := cmd.Process.Pid
 	fmt.Printf("  Dynatrace OTel Collector started (PID %d).\n", pid)
-	fmt.Printf("  Config: %s\n", configPath)
 
 	// Monitor the process; send its exit status on the channel.
 	crashed := make(chan error, 1)
@@ -547,7 +571,8 @@ func startOtelCollector(binaryPath, configPath string) (<-chan error, error) {
 //
 // Parameters:
 //   - envURL:       Dynatrace environment URL
-//   - token:        token used for Dynatrace API calls (e.g. log search)
+//   - token:        fallback ingest token used in the collector config when
+//                  ingestToken is empty (typically the OAuth token from dtctl)
 //   - ingestToken:  token written into the collector config for OTLP export;
 //                  should be a classic API token with logs.ingest / metrics.ingest /
 //                  traces.ingest scopes.  Pass empty string to fall back to token.
@@ -571,10 +596,30 @@ func InstallOtelCollector(envURL, token, ingestToken string, dryRun bool) error 
 		}
 	}
 
+	// Determine install directory (used for preview and for the actual install).
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting working directory: %w", err)
+	}
+	installDir := filepath.Join(cwd, "opentelemetry")
+	configPath := filepath.Join(installDir, "config.yaml")
+	binaryPath := filepath.Join(installDir, otelCollectorBinaryName())
+
+	// Generate config early so we can show it to the user before touching disk.
+	configContent, err := generateOtelConfig(apiURL, collectorToken)
+	if err != nil {
+		return fmt.Errorf("generating OTel Collector config: %w", err)
+	}
+
+	// Redact the token from the preview so secrets are not printed to the terminal.
+	configPreview := strings.ReplaceAll(configContent, collectorToken, "<redacted>")
+
 	if dryRun {
 		assetName, _ := otelPlatformAssetName("latest")
 		fmt.Println("[dry-run] Would install Dynatrace OpenTelemetry Collector")
-		fmt.Printf("  API URL:      %s\n", apiURL)
+		fmt.Printf("  Install dir:  %s\n", installDir)
+		fmt.Printf("  Binary:       %s\n", binaryPath)
+		fmt.Printf("  Config:       %s\n", configPath)
 		fmt.Printf("  Asset:        %s\n", assetName)
 		fmt.Printf("  Ingest token: %s\n", func() string {
 			if ingestToken != "" {
@@ -582,37 +627,51 @@ func InstallOtelCollector(envURL, token, ingestToken string, dryRun bool) error 
 			}
 			return "(from dtctl context — may lack ingest scopes)"
 		}())
-		fmt.Println("  Steps:")
-		fmt.Println("    1. Download collector binary from GitHub releases")
-		fmt.Println("    2. Generate collector config YAML with DT OTLP exporter")
-		fmt.Println("    3. Start collector process")
+		fmt.Println()
+		fmt.Println("  Collector config that would be written:")
+		fmt.Println("  ---")
+		for _, line := range strings.Split(strings.TrimRight(configPreview, "\n"), "\n") {
+			fmt.Println("  " + line)
+		}
+		fmt.Println("  ---")
 		return nil
 	}
 
-	// Determine install directory — create ./opentelemetry in the cwd.
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("getting working directory: %w", err)
+	// Show the user what will be installed and ask for confirmation.
+	fmt.Println()
+	fmt.Printf("  Install directory : %s\n", installDir)
+	fmt.Printf("  Binary            : %s\n", binaryPath)
+	fmt.Printf("  Config            : %s\n", configPath)
+	fmt.Println()
+	fmt.Println("  Collector config that will be written:")
+	fmt.Println("  ---")
+	for _, line := range strings.Split(strings.TrimRight(configPreview, "\n"), "\n") {
+		fmt.Println("  " + line)
 	}
-	installDir := filepath.Join(cwd, "opentelemetry")
+	fmt.Println("  ---")
+	fmt.Println()
+	fmt.Print("  Proceed with installation? [Y/n]: ")
+	{
+		reader := bufio.NewReader(os.Stdin)
+		answer, _ := reader.ReadString('\n')
+		answer = strings.TrimSpace(strings.ToLower(answer))
+		if answer != "" && answer != "y" && answer != "yes" {
+			return fmt.Errorf("installation aborted")
+		}
+	}
+	fmt.Println()
+
 	if err := os.MkdirAll(installDir, 0o755); err != nil {
 		return fmt.Errorf("creating install directory: %w", err)
 	}
 
-	fmt.Printf("  Installing to: %s\n", installDir)
-
 	// 1. Download binary.
-	binaryPath, err := downloadOtelCollector(installDir)
+	binaryPath, err = downloadOtelCollector(installDir)
 	if err != nil {
 		return err
 	}
 
-	// 2. Generate config.
-	configContent, err := generateOtelConfig(apiURL, collectorToken)
-	if err != nil {
-		return fmt.Errorf("generating OTel Collector config: %w", err)
-	}
-	configPath := filepath.Join(installDir, "config.yaml")
+	// 2. Write config.
 	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
 		return fmt.Errorf("writing OTel Collector config: %w", err)
 	}
@@ -621,11 +680,11 @@ func InstallOtelCollector(envURL, token, ingestToken string, dryRun bool) error 
 	// 3. Check for already-running collectors and offer to replace them.
 	if pids := findRunningOtelCollectors(); len(pids) > 0 {
 		fmt.Printf("\n  Dynatrace OTel Collector already running (PIDs: %v).\n", pids)
-		fmt.Print("  Kill them and start the new one? [y/N]: ")
+		fmt.Print("  Kill them and start the new one? [Y/n]: ")
 		reader := bufio.NewReader(os.Stdin)
 		answer, _ := reader.ReadString('\n')
 		answer = strings.TrimSpace(strings.ToLower(answer))
-		if answer != "y" && answer != "yes" {
+		if answer != "" && answer != "y" && answer != "yes" {
 			return fmt.Errorf("aborted: collector already running (PIDs: %v)", pids)
 		}
 		for _, pid := range pids {
