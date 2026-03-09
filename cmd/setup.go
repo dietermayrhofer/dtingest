@@ -97,7 +97,7 @@ var setupCmd = &cobra.Command{
 		case recommender.MethodDocker:
 			return installer.InstallDocker(envURL, token, setupDryRun)
 		case recommender.MethodOtelCollector:
-			return installer.InstallOtelCollector(envURL, token, setupDryRun)
+			return installer.InstallOtelCollector(envURL, token, accessToken(), setupDryRun)
 		case recommender.MethodAWS:
 			return installer.InstallAWS(envURL, token, platformToken(), setupDryRun)
 		default:

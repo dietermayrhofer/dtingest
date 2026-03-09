@@ -56,7 +56,7 @@ var installOtelCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return installer.InstallOtelCollector(envURL, token, installDryRun)
+		return installer.InstallOtelCollector(envURL, token, accessToken(), installDryRun)
 	},
 }
 
