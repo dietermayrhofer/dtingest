@@ -84,13 +84,88 @@ func EnsureInstalled() error {
 
 	fmt.Printf("  Installed dtctl to %s\n", destPath)
 
-	// Warn if the install directory might not be in PATH.
+	// If the install directory is not in PATH, add it to the shell profile automatically.
 	if _, err := exec.LookPath("dtctl"); err != nil {
-		fmt.Printf("\n  NOTE: %s may not be in your PATH.\n", dir)
-		fmt.Printf("  Add it with: export PATH=\"%s:$PATH\"\n", dir)
+		if addErr := addToPath(dir); addErr != nil {
+			fmt.Printf("\n  NOTE: %s may not be in your PATH.\n", dir)
+			fmt.Printf("  Add it with: export PATH=\"%s:$PATH\"\n", dir)
+		}
 	}
 
 	fmt.Println()
+	return nil
+}
+
+// addToPath appends an export PATH line to the user's shell profile and updates
+// the current process's PATH so dtctl is immediately usable.
+func addToPath(dir string) error {
+	if runtime.GOOS == "windows" {
+		// On Windows, use the registry-backed user PATH.
+		return addToPathWindows(dir)
+	}
+
+	profileFile := shellProfileFile()
+	if profileFile == "" {
+		return fmt.Errorf("could not determine shell profile")
+	}
+
+	exportLine := fmt.Sprintf("export PATH=\"%s:$PATH\"", dir)
+
+	// Check if the directory is already referenced in the profile.
+	if data, err := os.ReadFile(profileFile); err == nil {
+		if strings.Contains(string(data), dir) {
+			// Already present — just update the running process's PATH.
+			os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			return nil
+		}
+	}
+
+	f, err := os.OpenFile(profileFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	_, err = fmt.Fprintf(f, "\n# Added by dtingest installer\n%s\n", exportLine)
+	if err != nil {
+		return err
+	}
+
+	// Update the running process's PATH so LookPath succeeds immediately.
+	os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	fmt.Printf("\n  Added %s to PATH in %s\n", dir, profileFile)
+	return nil
+}
+
+// shellProfileFile returns the path to the current user's shell profile.
+func shellProfileFile() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+
+	shell := os.Getenv("SHELL")
+	switch {
+	case strings.HasSuffix(shell, "/zsh"):
+		return filepath.Join(home, ".zshrc")
+	case strings.HasSuffix(shell, "/bash"):
+		if runtime.GOOS == "darwin" {
+			return filepath.Join(home, ".bash_profile")
+		}
+		return filepath.Join(home, ".bashrc")
+	default:
+		return filepath.Join(home, ".profile")
+	}
+}
+
+// addToPathWindows adds the directory to the user-level PATH environment variable
+// on Windows via os.Setenv (process) and advises the user about persistence.
+func addToPathWindows(dir string) error {
+	// Update the running process so LookPath works immediately.
+	os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	fmt.Printf("\n  Added %s to PATH for this session.\n", dir)
+	fmt.Printf("  To make it permanent, add it via System → Environment Variables.\n")
 	return nil
 }
 
