@@ -194,18 +194,22 @@ func buildOneAgentInstallerArgs(installerPath, apiURL string, quiet bool) []stri
 	if runtime.GOOS == "windows" {
 		// Windows uses msiexec to run the MSI installer.
 		// Dynatrace parameters are passed via ADDITIONAL_CONFIGURATION.
-		additionalConfig := fmt.Sprintf(
-			"--set-server=%s --set-app-log-content-access=true",
+		//
+		// msiexec requires the property in the form:
+		//   ADDITIONAL_CONFIGURATION="--set-server=... --set-app-log-content-access=true"
+		//
+		// Go's exec.Command quotes arguments with spaces incorrectly for
+		// msiexec (wraps the whole KEY=value), so we build the full command
+		// string and run it via cmd.exe /C.
+		cmdLine := fmt.Sprintf(
+			`msiexec /i "%s" ADDITIONAL_CONFIGURATION="--set-server=%s --set-app-log-content-access=true"`,
+			installerPath,
 			strings.TrimRight(apiURL, "/"),
 		)
-		args := []string{
-			"msiexec", "/i", installerPath,
-			fmt.Sprintf("ADDITIONAL_CONFIGURATION=%s", additionalConfig),
-		}
 		if quiet {
-			args = append(args, "/quiet", "/qn")
+			cmdLine += " /quiet /qn"
 		}
-		return args
+		return []string{"cmd.exe", "/C", cmdLine}
 	}
 
 	// Linux shell installer — needs sudo if not already root.
