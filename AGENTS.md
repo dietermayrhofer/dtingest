@@ -407,7 +407,57 @@ The core principle: **if we detect it, we enable monitoring for it — no questi
 | **OTel direct SDK** | API token (`dt0c01.*`) | `openTelemetryTrace.ingest`, `metrics.ingest`, `logs.ingest` |
 | **AWS CloudFormation** | API token (`dt0c01.*`) | `settings:objects:write`, `extensions:configurations:write`, `extensions:configurations:read` (settings token) + `data-acquisition:logs:ingest`, `data-acquisition:events:ingest` (ingest token) |
 | **Kubernetes Operator** | API token (`dt0c01.*`) | Uses `Kubernetes Data Ingest` template scopes |
-| **DQL queries** | OAuth / platform token | `storage:logs:read`, `storage:metrics:read` |
+| **DQL queries** | Any token with Bearer auth | `storage:logs:read`, `storage:metrics:read` |
+
+### Token types and authentication headers
+
+Dynatrace uses several token prefixes, each with different capabilities:
+
+| Prefix | Token type | Typical use |
+|---|---|---|
+| `dt0c01.*` | API token (classic) | Environment API v1/v2 (`/api/v1`, `/api/v2`) |
+| `dt0s16.*` | Settings token | Settings API, extension configuration |
+| `dt0e*.` | Environment token | Agent communication |
+| OAuth tokens | Platform / PKCE tokens | Platform APIs, DQL, AppEngine |
+
+#### Auth header rules by endpoint family
+
+| Endpoint | Auth header format | Notes |
+|---|---|---|
+| Classic API (`/api/v1/*`, `/api/v2/*`) | `Api-Token dt0c01.*` | Must use `Api-Token` scheme |
+| Platform DQL API (`/platform/storage/query/v1/query:execute`) | `Bearer <token>` | **Always** `Bearer` — regardless of token prefix |
+| OTLP ingest (`/api/v2/otlp/*`) | `Api-Token dt0c01.*` | Classic API path, uses `Api-Token` |
+
+#### Critical finding: DQL endpoint auth
+
+The Grail DQL query endpoint at `.apps.` **always requires `Bearer` auth** — even for `dt0c01.*` tokens.  Sending `Api-Token dt0c01.*` (as `AuthHeader()` would produce) returns **403 "Insufficient permission to access the tenant"**.
+
+This was discovered empirically:
+
+1. `Api-Token dt0c01.*` → 403 (wrong auth scheme for platform endpoint)
+2. `Bearer dt0s16.*` → 403 ("Insufficient permission to access the tenant" — settings tokens lack Grail scopes)
+3. `Bearer dt0c01.*` → **Works** (if the token has `storage:logs:read` scope)
+
+The working Python implementation confirms this — it always uses `Bearer {token}` for DQL, never `Api-Token`:
+
+```python
+headers = {
+    "Authorization": f"Bearer {token}",  # Always Bearer, even for dt0c01.* tokens
+    "Content-Type": "application/json",
+}
+```
+
+#### dtingest token resolution for DQL verification
+
+`verifyOtelInstall` resolves the DQL token with fallback:
+
+```
+dqlToken = platformToken || apiToken
+```
+
+Matching the Python: `token = config.platform_token or config.api_token`
+
+Both are sent as `Bearer <token>` to the DQL endpoint. The `dt0c01.*` API token works as long as it has the `storage:logs:read` scope — no separate platform token is strictly required.
 
 ### Dynatrace Hub & ecosystem context
 
