@@ -10,6 +10,8 @@ import (
 
 	dtclient "github.com/dynatrace-oss/dtctl/pkg/client"
 	dtconfig "github.com/dynatrace-oss/dtctl/pkg/config"
+
+	"github.com/dietermayrhofer/dtingest/pkg/dtctl"
 )
 
 // loadDtctlConfig loads the dtctl configuration, optionally switching to a
@@ -164,15 +166,7 @@ func tryGetDtEnvironment() (environmentURL, token string, err error) {
 // isAuthError returns true when the error is caused by an expired or revoked
 // OAuth refresh token, which can be recovered by re-authenticating.
 func isAuthError(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "invalid_grant") ||
-		strings.Contains(msg, "refresh token") ||
-		strings.Contains(msg, "token refresh failed") ||
-		strings.Contains(msg, "unauthorized") ||
-		strings.Contains(msg, "401")
+	return dtctl.IsAuthError(err)
 }
 
 // isConfigError returns true when no dtctl configuration exists yet, i.e. the

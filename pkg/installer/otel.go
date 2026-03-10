@@ -22,6 +22,8 @@ import (
 	"strings"
 	"text/template"
 	"time"
+
+	"github.com/dietermayrhofer/dtingest/pkg/dtctl"
 )
 
 //go:embed otel.tmpl
@@ -351,20 +353,80 @@ func sendOtelVerificationLog(body string) error {
 // containing searchTerm appears in Dynatrace, or until the timeout elapses.
 // Authentication is handled by dtctl using the active context — no token
 // needs to be passed here.
+//
+// DQL log queries require an apps-URL context (*.apps.dynatracelabs.com).
+// This function auto-detects one via dtctl config get-contexts, and
+// automatically re-authenticates if the token has expired.
 func waitForLogInDynatrace(searchTerm string, timeout time.Duration) error {
 	dqlQuery := fmt.Sprintf(
 		`fetch logs, from: now()-10m | filter contains(content, "%s") | limit 1`,
 		searchTerm,
 	)
 
+	appsCtx := dtctl.AppsContext()
+	reauthDone := false
+
+	buildArgs := func() []string {
+		args := []string{"query", "--plain"}
+		if appsCtx != nil {
+			args = append(args, "--context", appsCtx.Name)
+		}
+		args = append(args, dqlQuery)
+		return args
+	}
+
+	if appsCtx != nil {
+		fmt.Printf("\n  (using dtctl context %q for DQL log query)\n", appsCtx.Name)
+	}
+
 	deadline := time.Now().Add(timeout)
+	var lastErr string
+	consecutiveErrors := 0
 	for {
-		out, err := exec.Command("dtctl", "query", "--plain", dqlQuery).Output()
+		cmd := exec.Command("dtctl", buildArgs()...)
+		out, err := cmd.Output()
 		if err == nil && strings.Contains(string(out), searchTerm) {
 			return nil
 		}
 
+		// Capture the real error for better diagnostics.
+		if err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				lastErr = strings.TrimSpace(string(exitErr.Stderr))
+			} else {
+				lastErr = err.Error()
+			}
+
+			// Auto-reauth if token expired — but only once per invocation.
+			if !reauthDone && appsCtx != nil && dtctl.IsTokenRefreshError(lastErr) {
+				if reauthErr := dtctl.Reauth(appsCtx); reauthErr != nil {
+					return fmt.Errorf("re-authentication failed: %w", reauthErr)
+				}
+				reauthDone = true
+				consecutiveErrors = 0
+				lastErr = ""
+				fmt.Printf("  Re-authentication successful. Waiting for log to appear in Dynatrace")
+				continue
+			}
+
+			consecutiveErrors++
+		} else {
+			// Query succeeded but log not yet visible — reset error streak.
+			consecutiveErrors = 0
+			lastErr = ""
+		}
+
+		// After 3 consecutive dtctl failures, assume it's a configuration
+		// problem (e.g. 403, wrong context) rather than a transient delay,
+		// and abort early with a useful message.
+		if consecutiveErrors >= 3 && lastErr != "" {
+			return fmt.Errorf("dtctl query failed repeatedly — log verification aborted\n\n  dtctl query error: %s\n\n  Tip: DQL log queries require an apps-URL dtctl context.\n  Run: dtctl auth login --context myenv-apps --environment https://<env-id>.apps.dynatracelabs.com", lastErr)
+		}
+
 		if time.Now().After(deadline) {
+			if lastErr != "" {
+				return fmt.Errorf("timed out waiting for log to appear in Dynatrace\n\n  dtctl query error: %s\n\n  Tip: DQL log queries require an apps-URL dtctl context.\n  Run: dtctl auth login --context myenv-apps --environment https://<env-id>.apps.dynatracelabs.com", lastErr)
+			}
 			return fmt.Errorf("timed out waiting for log to appear in Dynatrace")
 		}
 		fmt.Print(".")
@@ -372,10 +434,27 @@ func waitForLogInDynatrace(searchTerm string, timeout time.Duration) error {
 	}
 }
 
+// toAppsURL converts a classic Dynatrace environment URL to its apps-platform
+// equivalent, which is required for UI deep-links and Grail DQL queries.
+// e.g. https://fxz0998d.dev.dynatracelabs.com → https://fxz0998d.dev.apps.dynatracelabs.com
+// If the URL already contains ".apps." it is returned unchanged.
+func toAppsURL(envURL string) string {
+	if strings.Contains(envURL, ".apps.") {
+		return envURL
+	}
+	// Insert ".apps." before the well-known SaaS domain suffixes.
+	for _, suffix := range []string{".dynatracelabs.com", ".dynatrace.com"} {
+		if idx := strings.Index(envURL, suffix); idx != -1 {
+			return envURL[:idx] + ".apps" + envURL[idx:]
+		}
+	}
+	return envURL // unknown domain — return as-is
+}
+
 // buildOtelLogsUIURL constructs the Dynatrace Logs UI deep-link pre-filtered
 // to show records containing searchTerm.
 func buildOtelLogsUIURL(envURL, searchTerm string) string {
-	base := strings.TrimRight(envURL, "/")
+	base := strings.TrimRight(toAppsURL(envURL), "/")
 	fragmentJSON := fmt.Sprintf(
 		`{"version":2,"dt.timeframe":{"from":"now()-30m","to":"now()"},"tableConfig":{"columns":["timestamp","status","Log message"],"columnAttributes":{"tableLineWrap":true}},"analysisMode":"logs","showDqlEditor":false,"filterFieldQuery":"content = *%s*"}`,
 		searchTerm,
