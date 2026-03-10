@@ -21,7 +21,8 @@ var installOneAgentCmd = &cobra.Command{
 			return err
 		}
 		quiet, _ := cmd.Flags().GetBool("quiet")
-		return installer.InstallOneAgent(envURL, token, installDryRun, quiet)
+		hostGroup, _ := cmd.Flags().GetString("host-group")
+		return installer.InstallOneAgent(envURL, token, installDryRun, quiet, hostGroup)
 	},
 }
 
@@ -106,6 +107,7 @@ func init() {
 	installOtelPythonCmd.Flags().StringVar(&otelPythonServiceName, "service-name", "", "OTEL_SERVICE_NAME for the instrumented application (default: my-service)")
 
 	installOneAgentCmd.Flags().Bool("quiet", false, "Run a silent/unattended installation with no output")
+	installOneAgentCmd.Flags().String("host-group", "", "Assign the host to a host group (--set-host-group)")
 	installCmd.AddCommand(installOneAgentCmd)
 	installCmd.AddCommand(installKubernetesCmd)
 	installCmd.AddCommand(installDockerCmd)

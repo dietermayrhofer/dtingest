@@ -140,9 +140,10 @@ func downloadOneAgentInstaller(apiURL, token string) (string, error) {
 // Parameters:
 //   - envURL: Dynatrace environment URL (apps or live)
 //   - token:  API token with installation permissions
-//   - dryRun: when true, only print what would be done
-//   - quiet:  when true, suppress output and skip confirmation
-func InstallOneAgent(envURL, token string, dryRun, quiet bool) error {
+//   - dryRun:    when true, only print what would be done
+//   - quiet:     when true, suppress output and skip confirmation
+//   - hostGroup: optional host group name (passed as --set-host-group)
+func InstallOneAgent(envURL, token string, dryRun, quiet bool, hostGroup string) error {
 	apiURL := APIURL(envURL)
 
 	if dryRun {
@@ -153,6 +154,9 @@ func InstallOneAgent(envURL, token string, dryRun, quiet bool) error {
 		fmt.Printf("  Install mode:     %s\n", InstallModeFullStack)
 		if quiet {
 			fmt.Println("  Quiet mode:       yes")
+		}
+		if hostGroup != "" {
+			fmt.Printf("  Host group:       %s\n", hostGroup)
 		}
 		return nil
 	}
@@ -170,7 +174,7 @@ func InstallOneAgent(envURL, token string, dryRun, quiet bool) error {
 	}
 	defer os.Remove(installerPath)
 
-	args := buildOneAgentInstallerArgs(installerPath, apiURL, quiet)
+	args := buildOneAgentInstallerArgs(installerPath, apiURL, quiet, hostGroup)
 
 	if quiet {
 		if err := RunCommandQuiet(args[0], args[1:]...); err != nil {
@@ -190,26 +194,20 @@ func InstallOneAgent(envURL, token string, dryRun, quiet bool) error {
 // buildOneAgentInstallerArgs returns the command and arguments to run the
 // downloaded installer, varying by OS. When quiet is true, the native quiet
 // flags are appended so the installer produces no interactive output.
-func buildOneAgentInstallerArgs(installerPath, apiURL string, quiet bool) []string {
+func buildOneAgentInstallerArgs(installerPath, apiURL string, quiet bool, hostGroup string) []string {
 	if runtime.GOOS == "windows" {
-		// Windows uses msiexec to run the MSI installer.
-		// Dynatrace parameters are passed via ADDITIONAL_CONFIGURATION.
-		//
-		// msiexec requires the property in the form:
-		//   ADDITIONAL_CONFIGURATION="--set-server=... --set-app-log-content-access=true"
-		//
-		// Go's exec.Command quotes arguments with spaces incorrectly for
-		// msiexec (wraps the whole KEY=value), so we build the full command
-		// string and run it via cmd.exe /C.
-		cmdLine := fmt.Sprintf(
-			`msiexec /i "%s" ADDITIONAL_CONFIGURATION="--set-server=%s --set-app-log-content-access=true"`,
+		// Windows exe installer: parameters are passed directly as flags.
+		args := []string{
 			installerPath,
-			strings.TrimRight(apiURL, "/"),
-		)
-		if quiet {
-			cmdLine += " /quiet /qn"
+			"--set-app-log-content-access=true",
 		}
-		return []string{"cmd.exe", "/C", cmdLine}
+		if hostGroup != "" {
+			args = append(args, fmt.Sprintf("--set-host-group=%s", hostGroup))
+		}
+		if quiet {
+			args = append(args, "--quiet")
+		}
+		return args
 	}
 
 	// Linux shell installer — needs sudo if not already root.
@@ -217,6 +215,9 @@ func buildOneAgentInstallerArgs(installerPath, apiURL string, quiet bool) []stri
 		installerPath,
 		fmt.Sprintf("--set-server=%s", strings.TrimRight(apiURL, "/")),
 		"--set-app-log-content-access=true",
+	}
+	if hostGroup != "" {
+		args = append(args, fmt.Sprintf("--set-host-group=%s", hostGroup))
 	}
 
 	if needsSudo() {
