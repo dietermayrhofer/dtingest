@@ -4,11 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/dietermayrhofer/dtingest/pkg/dtctl"
 	"github.com/spf13/cobra"
 )
 
-var contextOverride string
 var environmentFlag string
 var accessTokenFlag string
 var platformTokenFlag string
@@ -18,12 +16,13 @@ var rootCmd = &cobra.Command{
 	Short: "Dynatrace Ingest CLI — analyze systems and deploy observability",
 	Long: `dtingest analyzes your system and deploys the best Dynatrace ingestion method.
 
-Authentication is handled by dtctl. Run 'dtctl auth login' or
-'dtctl config set-context' to configure your Dynatrace environment,
-then use dtingest commands to analyze and instrument your system.`,
-	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		return dtctl.EnsureInstalled()
-	},
+Provide your Dynatrace environment URL and access token via flags or
+environment variables:
+
+  export DT_ENVIRONMENT=https://<your-env>.dynatracelabs.com
+  export DT_ACCESS_TOKEN=dt0c01.****
+
+Then use dtingest commands to analyze and instrument your system.`,
 }
 
 // Execute runs the root command.
@@ -35,9 +34,8 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&contextOverride, "context", "", "override the dtctl context to use")
-	rootCmd.PersistentFlags().StringVar(&environmentFlag, "environment", "", "Dynatrace environment URL (overrides dtctl context; also read from DT_ENVIRONMENT)")
-	rootCmd.PersistentFlags().StringVar(&accessTokenFlag, "access-token", "", "Dynatrace API access token for methods that require it (also read from DT_ACCESS_TOKEN)")
+	rootCmd.PersistentFlags().StringVar(&environmentFlag, "environment", "", "Dynatrace environment URL (also read from DT_ENVIRONMENT)")
+	rootCmd.PersistentFlags().StringVar(&accessTokenFlag, "access-token", "", "Dynatrace API access token (also read from DT_ACCESS_TOKEN)")
 	rootCmd.PersistentFlags().StringVar(&platformTokenFlag, "platform-token", "", "Dynatrace platform token (dt0s16.*) for AWS installer (also read from DT_PLATFORM_TOKEN)")
 
 	rootCmd.AddCommand(analyzeCmd)

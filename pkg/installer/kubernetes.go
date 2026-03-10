@@ -303,7 +303,7 @@ func confirmProceed(prompt string) (bool, error) {
 //
 // Parameters:
 //   - envURL:    Dynatrace environment URL
-//   - token:     OAuth / data-ingest token (used as dataIngestToken in the Secret)
+//   - token:     data-ingest token (used as dataIngestToken in the Secret)
 //   - apiToken:  Classic Dynatrace access token (dt0c01.*) used as apiToken in the
 //               DynaKube Secret; falls back to token when empty
 //   - name:      DynaKube CR name (auto-derived from envURL if empty)

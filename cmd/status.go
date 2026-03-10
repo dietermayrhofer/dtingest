@@ -24,24 +24,18 @@ var statusCmd = &cobra.Command{
 		statusHead.Println("  Connection Status")
 		statusMuted.Println("  " + "──────────────────────────────────────────")
 
-		client, err := newDtClient()
-		if err != nil {
-			fmt.Printf("  %s  %s\n\n", statusLabel.Sprint("Dynatrace:"), statusError.Sprintf("✗ failed to connect: %v", err))
+		envURL := environmentHint()
+		tok := accessToken()
+
+		if envURL == "" {
+			fmt.Printf("  %s  %s\n", statusLabel.Sprint("Environment:"), statusError.Sprint("✗ not set (use --environment or DT_ENVIRONMENT)"))
 		} else {
-			user, userErr := client.CurrentUser()
-			if userErr != nil {
-				fmt.Printf("  %s  %s\n", statusLabel.Sprint("Dynatrace:"), statusError.Sprintf("✗ error: %v", userErr))
-			} else {
-				fmt.Printf("  %s  %s\n", statusLabel.Sprint("Dynatrace:"), statusOK.Sprint("✓ connected"))
-				userName := user.EmailAddress
-				if userName == "" {
-					userName = user.UserName
-				}
-				if userName != "" {
-					fmt.Printf("  %s  %s\n", statusLabel.Sprint("Logged in as:"), color.New(color.FgWhite).Sprint(userName))
-				}
-			}
-			fmt.Printf("  %s  %s\n\n", statusLabel.Sprint("Environment:"), color.New(color.FgWhite).Sprint(client.BaseURL()))
+			fmt.Printf("  %s  %s\n", statusLabel.Sprint("Environment:"), statusOK.Sprintf("✓ %s", envURL))
+		}
+		if tok == "" {
+			fmt.Printf("  %s  %s\n\n", statusLabel.Sprint("Access Token:"), statusError.Sprint("✗ not set (use --access-token or DT_ACCESS_TOKEN)"))
+		} else {
+			fmt.Printf("  %s  %s\n\n", statusLabel.Sprint("Access Token:"), statusOK.Sprint("✓ configured"))
 		}
 
 		statusHead.Println("  System Analysis")

@@ -400,8 +400,8 @@ func buildDeployArgs(cfg awsStackConfig, templateFile string) []string {
 // InstallAWS deploys the Dynatrace AWS Data Acquisition CloudFormation stack.
 //
 // Parameters:
-//   - envURL:         Dynatrace Platform environment URL (from dtctl context)
-//   - token:          OAuth token from dtctl (not usable as a platform token)
+//   - envURL:         Dynatrace Platform environment URL
+//   - token:          access token (used as default for prompt pre-fill)
 //   - platformToken:  dt0s16.* token from --platform-token / DT_PLATFORM_TOKEN (used as default for prompts)
 //   - dryRun:         when true, show what would be done without executing
 func InstallAWS(envURL, token, platformToken string, dryRun bool) error {

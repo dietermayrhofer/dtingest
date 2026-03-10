@@ -22,8 +22,6 @@ import (
 	"strings"
 	"text/template"
 	"time"
-
-	"github.com/dietermayrhofer/dtingest/pkg/dtctl"
 )
 
 //go:embed otel.tmpl
@@ -349,83 +347,82 @@ func sendOtelVerificationLog(body string) error {
 	return nil
 }
 
-// waitForLogInDynatrace shells out to `dtctl query` until a log record
-// containing searchTerm appears in Dynatrace, or until the timeout elapses.
-// Authentication is handled by dtctl using the active context — no token
-// needs to be passed here.
+
+// waitForLogInDynatrace queries the Dynatrace Grail DQL API directly until a
+// log record containing searchTerm appears, or until the timeout elapses.
 //
-// DQL log queries require an apps-URL context (*.apps.dynatracelabs.com).
-// This function auto-detects one via dtctl config get-contexts, and
-// automatically re-authenticates if the token has expired.
-func waitForLogInDynatrace(searchTerm string, timeout time.Duration) error {
+// The DQL endpoint lives on the .apps. URL variant:
+//   POST https://<env>.apps.<domain>/platform/storage/query/v1/query:execute
+func waitForLogInDynatrace(envURL, token, searchTerm string, timeout time.Duration) error {
+	appsBase := strings.TrimRight(toAppsURL(envURL), "/")
+	queryURL := appsBase + "/platform/storage/query/v1/query:execute"
+
 	dqlQuery := fmt.Sprintf(
 		`fetch logs, from: now()-10m | filter contains(content, "%s") | limit 1`,
 		searchTerm,
 	)
 
-	appsCtx := dtctl.AppsContext()
-	reauthDone := false
-
-	buildArgs := func() []string {
-		args := []string{"query", "--plain"}
-		if appsCtx != nil {
-			args = append(args, "--context", appsCtx.Name)
-		}
-		args = append(args, dqlQuery)
-		return args
-	}
-
-	if appsCtx != nil {
-		fmt.Printf("\n  (using dtctl context %q for DQL log query)\n", appsCtx.Name)
-	}
-
 	deadline := time.Now().Add(timeout)
 	var lastErr string
-	consecutiveErrors := 0
 	for {
-		cmd := exec.Command(dtctl.Binary(), buildArgs()...)
-		out, err := cmd.Output()
-		if err == nil && strings.Contains(string(out), searchTerm) {
-			return nil
-		}
+		payload, _ := json.Marshal(map[string]interface{}{
+			"query":                       dqlQuery,
+			"requestTimeoutMilliseconds":  8000,
+			"maxResultRecords":            1,
+		})
 
-		// Capture the real error for better diagnostics.
+		req, err := http.NewRequest(http.MethodPost, queryURL, bytes.NewReader(payload))
 		if err != nil {
-			if exitErr, ok := err.(*exec.ExitError); ok {
-				lastErr = strings.TrimSpace(string(exitErr.Stderr))
-			} else {
-				lastErr = err.Error()
-			}
-
-			// Auto-reauth if token expired — but only once per invocation.
-			if !reauthDone && appsCtx != nil && dtctl.IsTokenRefreshError(lastErr) {
-				if reauthErr := dtctl.Reauth(appsCtx); reauthErr != nil {
-					return fmt.Errorf("re-authentication failed: %w", reauthErr)
-				}
-				reauthDone = true
-				consecutiveErrors = 0
-				lastErr = ""
-				fmt.Printf("  Re-authentication successful. Waiting for log to appear in Dynatrace")
-				continue
-			}
-
-			consecutiveErrors++
+			lastErr = err.Error()
 		} else {
-			// Query succeeded but log not yet visible — reset error streak.
-			consecutiveErrors = 0
-			lastErr = ""
-		}
+			req.Header.Set("Content-Type", "application/json")
+			// The Grail DQL endpoint always requires Bearer auth, regardless
+			// of token type (dt0c01.*, dt0s16.*, OAuth).
+			req.Header.Set("Authorization", "Bearer "+token)
 
-		// After 3 consecutive dtctl failures, assume it's a configuration
-		// problem (e.g. 403, wrong context) rather than a transient delay,
-		// and abort early with a useful message.
-		if consecutiveErrors >= 3 && lastErr != "" {
-			return fmt.Errorf("dtctl query failed repeatedly — log verification aborted\n\n  dtctl query error: %s\n\n  Tip: DQL log queries require an apps-URL dtctl context.\n  Run: dtctl auth login --context myenv-apps --environment https://<env-id>.apps.dynatracelabs.com", lastErr)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				lastErr = err.Error()
+			} else {
+				body, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+
+				if resp.StatusCode/100 == 2 {
+					// Parse JSON to check for actual log records, matching the
+					// Python implementation: data["result"]["records"] non-empty.
+					var data struct {
+						Result struct {
+							Records []json.RawMessage `json:"records"`
+						} `json:"result"`
+					}
+					if json.Unmarshal(body, &data) == nil && len(data.Result.Records) > 0 {
+						return nil
+					}
+					// 2xx but no records yet — continue polling.
+					lastErr = ""
+				} else if resp.StatusCode == 401 || resp.StatusCode == 403 {
+					// Show token prefix so the user can verify they passed the right one.
+					tokenHint := token
+					if len(tokenHint) > 20 {
+						tokenHint = tokenHint[:20] + "..."
+					}
+					return fmt.Errorf(
+						"DQL query returned %d — the token may lack the required scopes\n\n"+
+							"  Ensure the token has scope: storage:logs:read\n"+
+							"  Token used: %s\n"+
+							"  Endpoint:   %s\n"+
+							"  Response:   %s",
+						resp.StatusCode, tokenHint, queryURL, strings.TrimSpace(string(body)),
+					)
+				} else if resp.StatusCode/100 != 2 {
+					lastErr = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+				}
+			}
 		}
 
 		if time.Now().After(deadline) {
 			if lastErr != "" {
-				return fmt.Errorf("timed out waiting for log to appear in Dynatrace\n\n  dtctl query error: %s\n\n  Tip: DQL log queries require an apps-URL dtctl context.\n  Run: dtctl auth login --context myenv-apps --environment https://<env-id>.apps.dynatracelabs.com", lastErr)
+				return fmt.Errorf("timed out waiting for log to appear in Dynatrace\n\n  Last error: %s", lastErr)
 			}
 			return fmt.Errorf("timed out waiting for log to appear in Dynatrace")
 		}
@@ -492,9 +489,19 @@ func waitForOtelCollectorReady(timeout time.Duration, crashed <-chan error) erro
 }
 
 // verifyOtelInstall sends a verification log through the running collector,
-// waits for it to arrive in Dynatrace, then prints the UI deep-link.
-// Log search is performed via `dtctl query` using the active dtctl context.
-func verifyOtelInstall(envURL string, crashed <-chan error) error {
+// waits for it to arrive in Dynatrace via DQL query, then prints the UI link.
+//
+// For the DQL query, platformToken is preferred; if empty, apiToken is used
+// as a fallback (matching the Python: platform_token or api_token). The Grail
+// DQL endpoint always requires Bearer auth. If neither token is set,
+// verification is skipped with a manual-check link.
+func verifyOtelInstall(envURL, platformToken, apiToken string, crashed <-chan error) error {
+	// Prefer platform token; fall back to API token.
+	dqlToken := platformToken
+	if dqlToken == "" {
+		dqlToken = apiToken
+	}
+
 	hostname, _ := os.Hostname()
 	// Unique search token: hostname + unix seconds — short and searchable.
 	uniqueID := fmt.Sprintf("dtingest-%s-%d", strings.ReplaceAll(hostname, ".", "-"), time.Now().Unix())
@@ -515,9 +522,17 @@ func verifyOtelInstall(envURL string, crashed <-chan error) error {
 	if err := sendOtelVerificationLog(body); err != nil {
 		return fmt.Errorf("sending verification log: %w", err)
 	}
+	if dqlToken == "" {
+		fmt.Println("  Skipping DQL log verification (no token available).")
+		fmt.Println()
+		logsURL := buildOtelLogsUIURL(envURL, uniqueID)
+		fmt.Println("  Check manually:", termLink("Open in Dynatrace Logs", logsURL))
+		return nil
+	}
+
 	fmt.Printf("  Log sent. Waiting for it to appear in Dynatrace")
 
-	if err := waitForLogInDynatrace(uniqueID, 2*time.Minute); err != nil {
+	if err := waitForLogInDynatrace(envURL, dqlToken, uniqueID, 2*time.Minute); err != nil {
 		return err
 	}
 
@@ -654,29 +669,21 @@ func startOtelCollector(binaryPath, configPath string) (<-chan error, error) {
 //
 // Parameters:
 //   - envURL:       Dynatrace environment URL
-//   - token:        fallback ingest token used in the collector config when
-//                  ingestToken is empty (typically the OAuth token from dtctl)
-//   - ingestToken:  token written into the collector config for OTLP export;
-//                  should be a classic API token with logs.ingest / metrics.ingest /
-//                  traces.ingest scopes.  Pass empty string to fall back to token.
-//   - dryRun:       when true, only print what would be done
-func InstallOtelCollector(envURL, token, ingestToken string, dryRun bool) error {
+//   - token:         fallback ingest token used in the collector config when
+//                   ingestToken is empty
+//   - ingestToken:   token written into the collector config for OTLP export;
+//                   should be a classic API token with logs.ingest / metrics.ingest /
+//                   traces.ingest scopes.  Pass empty string to fall back to token.
+//   - platformToken: platform token (dt0s16.*) for DQL log verification. May be empty
+//                   — verification is skipped in that case.
+//   - dryRun:        when true, only print what would be done
+func InstallOtelCollector(envURL, token, ingestToken, platformToken string, dryRun bool) error {
 	apiURL := APIURL(envURL)
 
 	// Resolve which token to write into the collector config.
 	collectorToken := ingestToken
 	if collectorToken == "" {
 		collectorToken = token
-		// Warn when the fallback token is OAuth — it may lack ingest scopes.
-		if !strings.HasPrefix(collectorToken, "dt0c01.") {
-			fmt.Println()
-			fmt.Println("  ⚠  No --access-token provided. The OAuth token from dtctl will be used")
-			fmt.Println("     for the collector config, but it may lack the required ingest scopes.")
-			fmt.Println("     For reliable OTLP export, create an API token with:")
-			fmt.Println("       logs.ingest  metrics.ingest  traces.ingest")
-			fmt.Println("     and pass it via --access-token.")
-			fmt.Println()
-		}
 	}
 
 	// Determine install directory (used for preview and for the actual install).
@@ -708,7 +715,7 @@ func InstallOtelCollector(envURL, token, ingestToken string, dryRun bool) error 
 			if ingestToken != "" {
 				return "(from --access-token)"
 			}
-			return "(from dtctl context — may lack ingest scopes)"
+			return "(from token)"
 		}())
 		fmt.Println()
 		fmt.Println("  Collector config that would be written:")
@@ -793,7 +800,7 @@ func InstallOtelCollector(envURL, token, ingestToken string, dryRun bool) error 
 	fmt.Println("  OpenTelemetry Collector installed and running.")
 
 	// 5. Send a verification log and wait for it to arrive in Dynatrace.
-	if err := verifyOtelInstall(envURL, crashed); err != nil {
+	if err := verifyOtelInstall(envURL, platformToken, collectorToken, crashed); err != nil {
 		fmt.Printf("\n  Warning: log verification failed: %v\n", err)
 		fmt.Println("  The collector may still be working — check the Dynatrace UI.")
 	}
