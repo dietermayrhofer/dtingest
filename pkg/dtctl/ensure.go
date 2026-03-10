@@ -4,6 +4,9 @@
 package dtctl
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"compress/gzip"
 	"fmt"
 	"io"
 	"net/http"
@@ -89,12 +92,42 @@ func EnsureInstalled() error {
 	}
 
 	fmt.Printf("  Downloading %s (%s)...\n", assetName, release.TagName)
-	if err := downloadFile(assetURL, destPath); err != nil {
+
+	// Download archive to a temp directory, extract the binary, then move it.
+	tmpDir, err := os.MkdirTemp("", "dtctl-install-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	archivePath := filepath.Join(tmpDir, assetName)
+	if err := downloadFile(assetURL, archivePath); err != nil {
 		return fmt.Errorf("download failed: %w", err)
 	}
 
-	if err := os.Chmod(destPath, 0755); err != nil {
-		return fmt.Errorf("chmod failed: %w", err)
+	binaryName := "dtctl"
+	if runtime.GOOS == "windows" {
+		binaryName = "dtctl.exe"
+	}
+
+	extractedPath := filepath.Join(tmpDir, binaryName)
+	if strings.HasSuffix(assetName, ".zip") {
+		if err := extractFromZip(archivePath, binaryName, extractedPath); err != nil {
+			return fmt.Errorf("extraction failed: %w", err)
+		}
+	} else {
+		if err := extractFromTarGz(archivePath, binaryName, extractedPath); err != nil {
+			return fmt.Errorf("extraction failed: %w", err)
+		}
+	}
+
+	// Move extracted binary to destination.
+	data, err := os.ReadFile(extractedPath)
+	if err != nil {
+		return fmt.Errorf("failed to read extracted binary: %w", err)
+	}
+	if err := os.WriteFile(destPath, data, 0755); err != nil {
+		return fmt.Errorf("failed to write binary to %s: %w", destPath, err)
 	}
 
 	fmt.Printf("  Installed dtctl to %s\n", destPath)
@@ -310,6 +343,77 @@ func installDir() (string, error) {
 		"no writable installation directory found\n" +
 			"Try running with sudo, or install dtctl manually: https://github.com/dynatrace-oss/dtctl/releases/latest",
 	)
+}
+
+// extractFromTarGz extracts a named file from a .tar.gz archive.
+func extractFromTarGz(archivePath, targetName, destPath string) error {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return err
+	}
+	defer gz.Close()
+
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		// Match by base name — archives may contain directory prefixes.
+		if filepath.Base(hdr.Name) == targetName && hdr.Typeflag == tar.TypeReg {
+			out, err := os.Create(destPath)
+			if err != nil {
+				return err
+			}
+			_, copyErr := io.Copy(out, tr)
+			closeErr := out.Close()
+			if copyErr != nil {
+				return copyErr
+			}
+			return closeErr
+		}
+	}
+	return fmt.Errorf("%s not found in archive %s", targetName, filepath.Base(archivePath))
+}
+
+// extractFromZip extracts a named file from a .zip archive.
+func extractFromZip(archivePath, targetName, destPath string) error {
+	r, err := zip.OpenReader(archivePath)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	for _, f := range r.File {
+		if filepath.Base(f.Name) == targetName && !f.FileInfo().IsDir() {
+			rc, err := f.Open()
+			if err != nil {
+				return err
+			}
+			defer rc.Close()
+
+			out, err := os.Create(destPath)
+			if err != nil {
+				return err
+			}
+			_, copyErr := io.Copy(out, rc)
+			closeErr := out.Close()
+			if copyErr != nil {
+				return copyErr
+			}
+			return closeErr
+		}
+	}
+	return fmt.Errorf("%s not found in archive %s", targetName, filepath.Base(archivePath))
 }
 
 // downloadFile downloads url to dest, writing atomically via a temp file.
