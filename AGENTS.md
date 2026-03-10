@@ -69,6 +69,37 @@ and everything works without `dtingest` needing to know about tokens or URL vari
 - **Read/query operations** (logs, metrics, entities): shell out to `dtctl query` or other `dtctl` subcommands.
 - **Write/ingest operations** (sending logs, metrics, traces): direct HTTP to the ingest endpoint is fine — those use simple API tokens with narrow ingest-only scopes that are already available.
 
+## Releases
+
+Releases are built and published with **GoReleaser** (`.goreleaser.yaml`). GoReleaser cross-compiles for all supported platforms, creates archives, and uploads them to the GitHub release.
+
+### How to cut a release
+
+```sh
+git tag v0.x.y
+git push origin v0.x.y
+GITHUB_TOKEN=$(gh auth token) goreleaser release --clean
+```
+
+### Asset naming convention (dtingest)
+
+Archives follow GoReleaser's default template:
+
+```
+dtingest_{version}_{os}_{arch}.tar.gz   # Linux / macOS
+dtingest_{version}_{os}_{arch}.zip      # Windows
+```
+
+Examples: `dtingest_0.1.3_darwin_arm64.tar.gz`, `dtingest_0.1.3_linux_amd64.tar.gz`.
+
+The install script (`scripts/install.sh`) constructs this name at runtime and downloads the matching asset from the GitHub release.
+
+### Pitfall: tag exists but release has no assets
+
+`git push --tags` (or the GitHub UI "draft release" flow) can create a lightweight GitHub release with an empty assets list. In that state `dtingest install otel-collector` — and the install script itself — will fail with 404 because there are no binaries to download.
+
+**Fix:** run `goreleaser release --clean` against the existing tag. GoReleaser detects the already-created release and uploads the missing archives.
+
 ## Current state
 
 The analyzer detects: platform/OS, container runtime (Docker), Kubernetes (with distribution and context), OneAgent, OTel Collector, AWS, Azure, and running services.

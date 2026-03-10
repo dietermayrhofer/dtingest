@@ -41,36 +41,40 @@ func otelCollectorBinaryName() string {
 	return "dynatrace-otel-collector"
 }
 
-// otelLatestReleaseVersion queries the GitHub API and returns the latest release
-// tag (e.g. "v0.44.0") for the Dynatrace OTel Collector.
+// otelLatestReleaseVersion resolves the latest release tag (e.g. "v0.44.0")
+// for the Dynatrace OTel Collector by following the /releases/latest redirect
+// on github.com. This avoids the GitHub REST API entirely, sidestepping the
+// 60 req/hour unauthenticated rate limit that causes 403 responses.
 func otelLatestReleaseVersion(ctx context.Context) (string, error) {
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse // don't follow — we want the Location header
+		},
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		"https://api.github.com/repos/Dynatrace/dynatrace-otel-collector/releases/latest", nil)
+		"https://github.com/Dynatrace/dynatrace-otel-collector/releases/latest", nil)
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("fetching latest release: %w", err)
+		return "", fmt.Errorf("fetching latest release redirect: %w", err)
 	}
-	defer resp.Body.Close()
+	resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GitHub releases API returned status %d", resp.StatusCode)
+	loc := resp.Header.Get("Location")
+	if loc == "" {
+		return "", fmt.Errorf("GitHub releases/latest returned no redirect (status %d)", resp.StatusCode)
 	}
 
-	var release struct {
-		TagName string `json:"tag_name"`
+	// Location is e.g. https://github.com/.../releases/tag/v0.44.0
+	tag := loc[strings.LastIndex(loc, "/")+1:]
+	if tag == "" || !strings.HasPrefix(tag, "v") {
+		return "", fmt.Errorf("unexpected redirect location: %s", loc)
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return "", fmt.Errorf("parsing release JSON: %w", err)
-	}
-	if release.TagName == "" {
-		return "", fmt.Errorf("release tag_name is empty")
-	}
-	return release.TagName, nil
+	return tag, nil
 }
 
 // otelPlatformAssetName returns the versioned GitHub release asset filename for
