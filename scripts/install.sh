@@ -102,10 +102,11 @@ echo "  - Add ${INSTALL_DIR} to your PATH (if not already present)"
 echo ""
 printf 'Continue? [Y/n] '
 read -r REPLY
-if [ "$REPLY" = "n" ] || [ "$REPLY" = "N" ] || [ "$REPLY" = "no" ] || [ "$REPLY" = "No" ] || [ "$REPLY" = "NO" ]; then
-    echo "Installation cancelled."
-    exit 0
-fi
+case "$REPLY" in
+    [Nn]|[Nn][Oo])
+        echo "Installation cancelled."
+        exit 0 ;;
+esac
 
 mkdir -p "$INSTALL_DIR"
 
