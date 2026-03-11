@@ -43,11 +43,16 @@ func otelInfoFromPID(pid string) (binaryPath, configPath string) {
 	return binaryPath, configPath
 }
 
-// extractOtelConfigPath parses an otelcol cmdline to find --config=<path>.
+// extractOtelConfigPath parses an otelcol cmdline to find the config path.
+// Handles both "--config=<path>" and "--config <path>" forms.
 func extractOtelConfigPath(cmdline string) string {
-	for _, part := range strings.Fields(cmdline) {
+	fields := strings.Fields(cmdline)
+	for i, part := range fields {
 		if strings.HasPrefix(part, "--config=") {
 			return strings.TrimPrefix(part, "--config=")
+		}
+		if part == "--config" && i+1 < len(fields) {
+			return fields[i+1]
 		}
 	}
 	return ""

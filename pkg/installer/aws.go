@@ -23,15 +23,18 @@ var awsTemplateText string
 const awsTemplateURL = "https://dynatrace-data-acquisition.s3.amazonaws.com/aws/deployment/cfn/v1.0.0/da-aws-activation.yaml"
 
 // defaultLogsRegions is the pre-selected set of AWS regions for log ingestion.
+// Only generally-available regions are included; newer opt-in-only regions
+// (e.g. ap-east-2, ap-southeast-6, ap-southeast-7, mx-central-1) are excluded
+// because they cause CREATE_FAILED on accounts that haven't enabled them.
 const defaultLogsRegions = "us-east-1,us-east-2,us-west-1,us-west-2," +
 	"ca-central-1,ca-west-1," +
-	"ap-east-1,ap-east-2,ap-northeast-1,ap-northeast-2,ap-northeast-3," +
+	"ap-east-1,ap-northeast-1,ap-northeast-2,ap-northeast-3," +
 	"ap-south-1,ap-south-2," +
-	"ap-southeast-1,ap-southeast-2,ap-southeast-3,ap-southeast-4,ap-southeast-5,ap-southeast-6,ap-southeast-7," +
+	"ap-southeast-1,ap-southeast-2,ap-southeast-3,ap-southeast-4,ap-southeast-5," +
 	"eu-central-1,eu-central-2,eu-north-1,eu-south-1,eu-south-2," +
 	"eu-west-1,eu-west-2,eu-west-3," +
 	"me-central-1,me-south-1," +
-	"af-south-1,il-central-1,mx-central-1,sa-east-1"
+	"af-south-1,il-central-1,sa-east-1"
 
 // awsStackConfig holds all values required to render aws.tmpl and drive the
 // CloudFormation deployment.
@@ -486,7 +489,7 @@ func InstallAWS(envURL, token, platformToken string, dryRun bool) error {
 
 	cfg := awsStackConfig{
 		StackName:          stackName,
-		DynatraceURL:       strings.TrimRight(dynatraceURL, "/"),
+		DynatraceURL:       strings.TrimRight(toAppsURL(dynatraceURL), "/"),
 		SettingsToken:      settingsToken,
 		IngestToken:        ingestToken,
 		MonitoringConfigID: monitoringConfigID,

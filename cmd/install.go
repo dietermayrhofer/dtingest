@@ -71,7 +71,7 @@ var installOtelUpdateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return installer.UpdateOtelConfig(otelUpdateConfigPath, envURL, token, installDryRun)
+		return installer.UpdateOtelConfig(otelUpdateConfigPath, envURL, token, platformToken(), installDryRun)
 	},
 }
 

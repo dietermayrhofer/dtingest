@@ -98,6 +98,12 @@ var setupCmd = &cobra.Command{
 			return installer.InstallDocker(envURL, token, setupDryRun)
 		case recommender.MethodOtelCollector:
 			return installer.InstallOtelCollector(envURL, token, accessToken(), platformToken(), setupDryRun)
+		case recommender.MethodOtelUpdate:
+			cfgPath := selected.ConfigPath
+			if cfgPath == "" {
+				cfgPath = "config.yaml" // fall back to CWD default
+			}
+			return installer.UpdateOtelConfig(cfgPath, envURL, token, platformToken(), setupDryRun)
 		case recommender.MethodAWS:
 			return installer.InstallAWS(envURL, token, platformToken(), setupDryRun)
 		default:

@@ -26,13 +26,16 @@ const (
 
 // Recommendation describes a single suggested ingestion method.
 type Recommendation struct {
-	Method       IngestMethod `json:"method"`
-	Priority     int          `json:"priority"`
-	Title        string       `json:"title"`
-	Description  string       `json:"description"`
-	Prerequisites []string    `json:"prerequisites,omitempty"`
-	Steps        []string     `json:"steps,omitempty"`
-	Done         bool         `json:"done,omitempty"`
+	Method        IngestMethod `json:"method"`
+	Priority      int          `json:"priority"`
+	Title         string       `json:"title"`
+	Description   string       `json:"description"`
+	Prerequisites []string     `json:"prerequisites,omitempty"`
+	Steps         []string     `json:"steps,omitempty"`
+	Done          bool         `json:"done,omitempty"`
+	// ConfigPath carries the detected config file path for methods that need
+	// it (e.g. MethodOtelUpdate).  Empty when not relevant.
+	ConfigPath string `json:"config_path,omitempty"`
 }
 
 // GenerateRecommendations returns a ranked list of recommendations based on
@@ -133,6 +136,7 @@ func GenerateRecommendations(system *analyzer.SystemInfo) []Recommendation {
 			Steps: []string{
 				"dtingest install otel-update",
 			},
+			ConfigPath: system.OtelConfigPath,
 		})
 	}
 

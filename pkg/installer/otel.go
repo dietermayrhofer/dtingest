@@ -661,6 +661,7 @@ func startOtelCollector(binaryPath, configPath string) (<-chan error, error) {
 		_ = cmd.Process.Release()
 	}
 
+	fmt.Println("  OpenTelemetry Collector running.")
 	return crashed, nil
 }
 
@@ -797,9 +798,7 @@ func InstallOtelCollector(envURL, token, ingestToken, platformToken string, dryR
 		return err
 	}
 
-	fmt.Println("  OpenTelemetry Collector installed and running.")
-
-	// 5. Send a verification log and wait for it to arrive in Dynatrace.
+	// Send a verification log and wait for it to arrive in Dynatrace.
 	if err := verifyOtelInstall(envURL, platformToken, collectorToken, crashed); err != nil {
 		fmt.Printf("\n  Warning: log verification failed: %v\n", err)
 		fmt.Println("  The collector may still be working — check the Dynatrace UI.")

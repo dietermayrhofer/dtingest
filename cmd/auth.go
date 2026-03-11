@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 	"os"
+
+	"github.com/dietermayrhofer/dtingest/pkg/installer"
 )
 
 // environmentHint returns the Dynatrace environment URL from the --environment
@@ -12,6 +14,30 @@ func environmentHint() string {
 		return environmentFlag
 	}
 	return os.Getenv("DT_ENVIRONMENT")
+}
+
+// classicEnvironmentURL returns the Classic (non-apps) API base URL derived
+// from whatever environment URL the user supplied.  It is safe to call
+// regardless of whether the user passed an .apps. URL or a classic URL.
+//
+// Examples:
+//
+//	https://fxz0998d.dev.apps.dynatracelabs.com  →  https://fxz0998d.dev.dynatracelabs.com
+//	https://abc123.live.dynatrace.com            →  https://abc123.live.dynatrace.com (no change)
+func classicEnvironmentURL() string {
+	return installer.APIURL(environmentHint())
+}
+
+// appsEnvironmentURL returns the Platform (.apps.) URL derived from whatever
+// environment URL the user supplied.  It is safe to call regardless of whether
+// the user passed an .apps. URL or a classic URL.
+//
+// Examples:
+//
+//	https://fxz0998d.dev.apps.dynatracelabs.com  →  https://fxz0998d.dev.apps.dynatracelabs.com (no change)
+//	https://fxz0998d.dev.dynatracelabs.com       →  https://fxz0998d.dev.apps.dynatracelabs.com
+func appsEnvironmentURL() string {
+	return installer.AppsURL(environmentHint())
 }
 
 // accessToken returns the Dynatrace API access token from the --access-token

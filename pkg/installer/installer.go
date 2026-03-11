@@ -43,6 +43,29 @@ func APIURL(environmentURL string) string {
 	return strings.TrimRight(s, "/")
 }
 
+// AppsURL converts any Dynatrace environment URL to the Platform (apps) URL
+// by inserting ".apps." before the domain suffix when it is not already present.
+//
+// Mapping rules:
+//   - *.live.dynatrace.com      → *.apps.dynatrace.com      (production SaaS)
+//   - *.dynatracelabs.com       → *.apps.dynatracelabs.com  (dev/sprint envs)
+//   - URLs already containing .apps. are returned unchanged.
+func AppsURL(environmentURL string) string {
+	envURL := strings.TrimRight(environmentURL, "/")
+	if strings.Contains(envURL, ".apps.") {
+		return envURL
+	}
+	// live.dynatrace.com is the production variant of the classic URL.
+	envURL = strings.Replace(envURL, ".live.dynatrace.com", ".apps.dynatrace.com", 1)
+	// For dev/sprint envs, insert .apps. before the domain suffix.
+	for _, suffix := range []string{".dynatracelabs.com", ".dynatrace.com"} {
+		if idx := strings.Index(envURL, suffix); idx != -1 {
+			return envURL[:idx] + ".apps" + envURL[idx:]
+		}
+	}
+	return envURL // unknown domain — return as-is
+}
+
 // ExtractTenantID extracts the tenant/environment ID (first DNS label) from a
 // Dynatrace environment URL.
 // e.g. "https://abc12345.live.dynatrace.com" → "abc12345"

@@ -4,3 +4,4 @@ dist/
 # Downloaded collector binary and generated config (contains tokens)
 opentelemetry/dynatrace-otel-collector
 opentelemetry/config.yaml
+opentelemetry/*.bak*
