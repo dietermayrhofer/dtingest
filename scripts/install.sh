@@ -91,9 +91,24 @@ if [ -z "$INSTALL_DIR" ]; then
         INSTALL_DIR="/usr/local/bin"
     else
         INSTALL_DIR="$HOME/bin"
-        mkdir -p "$INSTALL_DIR"
     fi
 fi
+
+# ── Confirm installation ───────────────────────────────────────────────────────
+echo ""
+echo "This will:"
+echo "  • Install dtingest ${VERSION} to ${INSTALL_DIR}"
+echo "  • Add ${INSTALL_DIR} to your PATH (if not already present)"
+echo ""
+printf 'Continue? [Y/n] '
+read -r REPLY
+case "$REPLY" in
+    [Nn]|[Nn][Oo])
+        echo "Installation cancelled."
+        exit 0 ;;
+esac
+
+mkdir -p "$INSTALL_DIR"
 
 # ── Install binary ─────────────────────────────────────────────────────────────
 DEST="${INSTALL_DIR}/dtingest"

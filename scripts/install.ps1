@@ -92,6 +92,19 @@ try {
     if (-not $InstallDir) {
         $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\dtingest"
     }
+
+    # ── Confirm installation ──────────────────────────────────────────────────
+    Write-Host ""
+    Write-Host "This will:"
+    Write-Host "  * Install dtingest $Version to $InstallDir"
+    Write-Host "  * Add $InstallDir to your user PATH (if not already present)"
+    Write-Host ""
+    $Confirm = Read-Host "Continue? [Y/n]"
+    if ($Confirm -match '^[Nn]') {
+        Write-Host "Installation cancelled."
+        exit 0
+    }
+
     if (-not (Test-Path $InstallDir)) {
         New-Item -ItemType Directory -Path $InstallDir | Out-Null
     }
