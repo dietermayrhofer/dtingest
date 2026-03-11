@@ -101,7 +101,7 @@ echo "  - Install dtingest ${VERSION} to ${INSTALL_DIR}"
 echo "  - Add ${INSTALL_DIR} to your PATH (if not already present)"
 echo ""
 printf 'Continue? [Y/n] '
-read -r REPLY
+read -r REPLY </dev/tty
 case "$REPLY" in
     [Nn]|[Nn][Oo])
         echo "Installation cancelled."
