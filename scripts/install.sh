@@ -97,8 +97,8 @@ fi
 # ── Confirm installation ───────────────────────────────────────────────────────
 echo ""
 echo "This will:"
-echo "  • Install dtingest ${VERSION} to ${INSTALL_DIR}"
-echo "  • Add ${INSTALL_DIR} to your PATH (if not already present)"
+echo "  - Install dtingest ${VERSION} to ${INSTALL_DIR}"
+echo "  - Add ${INSTALL_DIR} to your PATH (if not already present)"
 echo ""
 printf 'Continue? [Y/n] '
 read -r REPLY
