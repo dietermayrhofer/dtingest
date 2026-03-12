@@ -73,8 +73,8 @@ if (-not $InstallDir) {
 
 # ── Confirm installation ──────────────────────────────────────────────────────
 Write-Host ""
-Write-Host "This will download and install dtingest $Version:"
-Write-Host "  * Download from github.com/$Repo"
+Write-Host "This will download and install dtingest ${Version}:"
+Write-Host "  * Download from github.com/${Repo}"
 Write-Host "  * Install to $InstallDir"
 Write-Host "  * Add $InstallDir to your user PATH (if not already present)"
 Write-Host ""
@@ -86,7 +86,7 @@ if ($Confirm -match '^[Nn]') {
 
 # ── Download and extract ───────────────────────────────────────────────────────
 Write-Host ""
-Write-Host "Downloading dtingest $Version..."
+Write-Host "Downloading dtingest ${Version}..."
 
 $VersionNum = $Version.TrimStart("v")
 $Archive    = "dtingest_${VersionNum}_windows_${Arch}.zip"
@@ -116,7 +116,7 @@ try {
     Move-Item -Force $ExtractedBinary $Dest
 
     Write-Host ""
-    Write-Host "dtingest $Version installed to $Dest"
+    Write-Host "dtingest ${Version} installed to ${Dest}"
 
     # ── Add to user PATH if needed ─────────────────────────────────────────────
     $UserPath = [Environment]::GetEnvironmentVariable("PATH", "User")
