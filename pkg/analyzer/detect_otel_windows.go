@@ -1,0 +1,79 @@
+//go:build windows
+
+package analyzer
+
+import "strings"
+
+// detectOtelCollector looks for a running OpenTelemetry Collector process on Windows.
+// Uses tasklist and WMIC since pgrep is not available.
+// Returns (running, binaryPath, configPath).
+func detectOtelCollector() (bool, string, string) {
+	// Patterns to search for in the process list.
+	processNames := []string{
+		"otelcol.exe",
+		"otelcol-contrib.exe",
+		"dynatrace-otel-collector.exe",
+	}
+
+	// First try Get-Process via powershell for a quick name-based check.
+	for _, name := range processNames {
+		// Strip the .exe suffix for Get-Process -Name which doesn't want it.
+		baseName := strings.TrimSuffix(name, ".exe")
+		ok, _ := runCmd("powershell", "-NoProfile", "-Command",
+			"Get-Process -Name '"+baseName+"' -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object { $_.Id }")
+		if ok {
+			// Found the process — now get its full command line to extract config path.
+			binPath, configPath := otelInfoFromProcessName(baseName)
+			return true, binPath, configPath
+		}
+	}
+
+	// Fall back to WMIC full command line search for custom-named builds.
+	for _, pattern := range []string{"otel-collector", "otelcol"} {
+		ok, output := runCmd("powershell", "-NoProfile", "-Command",
+			"Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match '"+pattern+"' } | Select-Object -First 1 -ExpandProperty CommandLine")
+		if ok && output != "" {
+			binPath, configPath := parseWindowsCommandLine(output)
+			return true, binPath, configPath
+		}
+	}
+
+	return false, "", ""
+}
+
+// otelInfoFromProcessName retrieves the command line of a process by name on Windows
+// and extracts the binary path and config path.
+func otelInfoFromProcessName(name string) (binaryPath, configPath string) {
+	ok, output := runCmd("powershell", "-NoProfile", "-Command",
+		"Get-CimInstance Win32_Process -Filter \"Name='"+name+".exe'\" | Select-Object -First 1 -ExpandProperty CommandLine")
+	if !ok || output == "" {
+		return name + ".exe", ""
+	}
+	return parseWindowsCommandLine(output)
+}
+
+// parseWindowsCommandLine extracts the binary path and OTel config path from a command line string.
+func parseWindowsCommandLine(cmdline string) (binaryPath, configPath string) {
+	fields := strings.Fields(cmdline)
+	if len(fields) > 0 {
+		// Remove surrounding quotes if present.
+		binaryPath = strings.Trim(fields[0], "\"")
+	}
+	configPath = extractOtelConfigPath(cmdline)
+	return binaryPath, configPath
+}
+
+// extractOtelConfigPath parses an otelcol cmdline to find the config path.
+// Handles both "--config=<path>" and "--config <path>" forms.
+func extractOtelConfigPath(cmdline string) string {
+	fields := strings.Fields(cmdline)
+	for i, part := range fields {
+		if strings.HasPrefix(part, "--config=") {
+			return strings.TrimPrefix(part, "--config=")
+		}
+		if part == "--config" && i+1 < len(fields) {
+			return fields[i+1]
+		}
+	}
+	return ""
+}

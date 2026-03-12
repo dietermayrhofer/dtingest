@@ -88,37 +88,7 @@ func GenerateRecommendations(system *analyzer.SystemInfo) []Recommendation {
 		})
 	}
 
-	// 4. Bare metal / VM (Linux or Windows, no containers) → host OneAgent.
-	if system.ContainerRuntime == analyzer.ContainerRuntimeNone &&
-		system.Orchestrator == analyzer.OrchestratorNone &&
-		(system.Platform == analyzer.PlatformLinux || system.Platform == analyzer.PlatformWindows) {
-		recs = append(recs, Recommendation{
-			Method:      MethodOneAgent,
-			Priority:    30,
-			Title:       "Install Dynatrace OneAgent on this host",
-			Description: "No container runtime detected. Install OneAgent directly for full-stack host monitoring.",
-			Prerequisites: []string{"Root/Administrator privileges", "Dynatrace API token"},
-			Steps: []string{
-				"dtingest install oneagent",
-			},
-		})
-	}
-
-	// 5. AWS detected → CloudFormation integration.
-	if system.AWS != nil && system.AWS.Available {
-		recs = append(recs, Recommendation{
-			Method:      MethodAWS,
-			Priority:    40,
-			Title:       "Set up Dynatrace AWS CloudFormation integration",
-			Description: fmt.Sprintf("AWS credentials detected (account: %s). Deploy the Dynatrace ActiveGate via CloudFormation for cloud-level monitoring.", system.AWS.AccountID),
-			Prerequisites: []string{"AWS CLI with sufficient permissions", "Dynatrace API token"},
-			Steps: []string{
-				"dtingest install aws",
-			},
-		})
-	}
-
-	// 6. OTel Collector found → configure existing exporter.
+	// 4. OTel Collector found → configure existing exporter.
 	if system.OtelCollector {
 		configHint := ""
 		if system.OtelConfigPath != "" {
@@ -126,7 +96,7 @@ func GenerateRecommendations(system *analyzer.SystemInfo) []Recommendation {
 		}
 		recs = append(recs, Recommendation{
 			Method:   MethodOtelUpdate,
-			Priority: 50,
+			Priority: 30,
 			Title:    "Configure existing OpenTelemetry Collector",
 			Description: fmt.Sprintf(
 				"An OpenTelemetry Collector is running%s. Add the Dynatrace OTLP exporter to send telemetry to Dynatrace.",
@@ -140,16 +110,46 @@ func GenerateRecommendations(system *analyzer.SystemInfo) []Recommendation {
 		})
 	}
 
-	// 7. No OTel Collector running → recommend installing one.
+	// 5. No OTel Collector running → recommend installing one.
 	if !system.OtelCollector {
 		recs = append(recs, Recommendation{
 			Method:   MethodOtelCollector,
-			Priority: 50,
+			Priority: 30,
 			Title:    "Install Dynatrace OpenTelemetry Collector",
 			Description: "Deploy the Dynatrace OpenTelemetry Collector to ingest traces, metrics, and logs via OTLP.",
 			Prerequisites: []string{"Dynatrace API token with ingest scopes"},
 			Steps: []string{
 				"dtingest install otel-collector",
+			},
+		})
+	}
+
+	// 6. Bare metal / VM (Linux or Windows, no containers) → host OneAgent.
+	if system.ContainerRuntime == analyzer.ContainerRuntimeNone &&
+		system.Orchestrator == analyzer.OrchestratorNone &&
+		(system.Platform == analyzer.PlatformLinux || system.Platform == analyzer.PlatformWindows) {
+		recs = append(recs, Recommendation{
+			Method:      MethodOneAgent,
+			Priority:    40,
+			Title:       "Install Dynatrace OneAgent on this host",
+			Description: "No container runtime detected. Install OneAgent directly for full-stack host monitoring.",
+			Prerequisites: []string{"Root/Administrator privileges", "Dynatrace API token"},
+			Steps: []string{
+				"dtingest install oneagent",
+			},
+		})
+	}
+
+	// 7. AWS detected → CloudFormation integration.
+	if system.AWS != nil && system.AWS.Available {
+		recs = append(recs, Recommendation{
+			Method:      MethodAWS,
+			Priority:    50,
+			Title:       "Set up Dynatrace AWS CloudFormation integration",
+			Description: fmt.Sprintf("AWS credentials detected (account: %s). Deploy the Dynatrace ActiveGate via CloudFormation for cloud-level monitoring.", system.AWS.AccountID),
+			Prerequisites: []string{"AWS CLI with sufficient permissions", "Dynatrace API token"},
+			Steps: []string{
+				"dtingest install aws",
 			},
 		})
 	}
