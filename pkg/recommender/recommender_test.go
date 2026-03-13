@@ -37,8 +37,15 @@ func TestGenerateRecommendations_Kubernetes(t *testing.T) {
 	if len(recs) == 0 {
 		t.Fatal("expected at least one recommendation")
 	}
-	if recs[0].Method != recommender.MethodKubernetes {
-		t.Errorf("expected first method %q, got %q", recommender.MethodKubernetes, recs[0].Method)
+	// OTel is always first; kubernetes should appear in the list.
+	found := false
+	for _, r := range recs {
+		if r.Method == recommender.MethodKubernetes {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected kubernetes recommendation")
 	}
 }
 
