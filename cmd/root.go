@@ -7,6 +7,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Version is set at build time via -ldflags.
+var Version = "dev"
+
 var environmentFlag string
 var accessTokenFlag string
 var platformTokenFlag string
@@ -44,4 +47,5 @@ func init() {
 	rootCmd.AddCommand(installCmd)
 	rootCmd.AddCommand(uninstallCmd)
 	rootCmd.AddCommand(statusCmd)
+	rootCmd.AddCommand(versionCmd)
 }

@@ -3,8 +3,10 @@ GO     := go
 
 .PHONY: build install test lint clean
 
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+
 build:
-	$(GO) build -o $(BINARY) .
+	$(GO) build -ldflags "-X github.com/dietermayrhofer/dtingest/cmd.Version=$(VERSION)" -o $(BINARY) .
 
 install:
 	$(GO) install .
