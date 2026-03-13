@@ -21,6 +21,12 @@ dtctl config set-context my-env \
 ## Installation
 
 ```bash
+source <(curl -sSL https://raw.githubusercontent.com/dietermayrhofer/dtingest/main/scripts/install_dtingest_linux_mac.sh)
+```
+
+> Requires bash or zsh. Using `source <(...)` makes `dtingest` available in your current terminal immediately — no need to open a new one.
+
+```bash
 # From source
 git clone https://github.com/dietermayrhofer/dt-clis.git
 cd dt-clis/dtingest

@@ -1,15 +1,17 @@
 #!/usr/bin/env sh
 # install.sh — Download and install dtingest for the current platform.
 #
-# Usage:
-#   ./install.sh [--install-dir <dir>]
+# Usage (recommended — makes dtingest available immediately without reopening your terminal):
+#   source <(curl -sSL https://raw.githubusercontent.com/dietermayrhofer/dtingest/main/scripts/install_dtingest_linux_mac.sh)
 #
+# Alternative (requires opening a new terminal afterwards):
+#   curl -sSL https://raw.githubusercontent.com/dietermayrhofer/dtingest/main/scripts/install_dtingest_linux_mac.sh | sh
+#
+# Requires bash or zsh. Pass --install-dir <dir> to override the install location.
 # By default the binary is installed to /usr/local/bin (requires sudo) or
-# ~/bin if /usr/local/bin is not writable.  Pass --install-dir to override.
+# ~/bin if /usr/local/bin is not writable.
 #
 # The script requires curl.
-
-set -e
 
 REPO="dietermayrhofer/dtingest"
 
@@ -152,13 +154,15 @@ case ":${PATH}:" in
                 printf '\n# Added by dtingest installer\n%s\n' "$EXPORT_LINE" >> "$PROFILE_FILE"
                 echo ""
                 echo "  Added ${INSTALL_DIR} to PATH in ${PROFILE_FILE}"
-                . "${PROFILE_FILE}"
-                echo "  Sourced ${PROFILE_FILE}. dtingest is now available."
             fi
-        else
-            echo ""
-            echo "  NOTE: ${INSTALL_DIR} is not in your PATH."
-            echo "  Add it with: ${EXPORT_LINE}"
         fi
+
+        # Export PATH into the current shell. This takes effect immediately when
+        # the script is sourced (source <(curl ...)); it is a no-op in a subshell.
+        export PATH="${INSTALL_DIR}:$PATH"
+        echo ""
+        echo "  dtingest is now available in this terminal."
+        echo "  (If you used 'curl | sh' instead of 'source <(...)', open a new terminal or run:)"
+        echo "    export PATH=\"${INSTALL_DIR}:\$PATH\""
         ;;
 esac
